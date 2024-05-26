@@ -96,7 +96,6 @@ int main(int argc, char *argv[]) {
                 cur_sum += *p - '0';
             }
         }
-        usleep(1000000);
         // close(fd_recv);
     }
 

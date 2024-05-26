@@ -64,8 +64,8 @@ int main(int argc, char *argv[]) {
         create_fifo(fifo_in);
         create_fifo(fifo_out);
 
-        int read_fd = open_fd(fifo_in, O_RDONLY);
-        int write_fd = open_fd(fifo_out, O_WRONLY);
+        int read_fd = open_fd(fifo_in, O_RDONLY | O_NONBLOCK);
+        //int write_fd = open_fd(fifo_out, O_WRONLY);
 
         pid_t pid = fork();
         if (pid == -1) {
@@ -78,10 +78,10 @@ int main(int argc, char *argv[]) {
             exit(EXIT_FAILURE);
         } else {
             pids[i] = pid;
-            read_fifos[i] = fifo_in;
-            write_fifos[i] = fifo_out;
+            read_fifos[i] = strdup(fifo_in);
+            write_fifos[i] = strdup(fifo_out);
             read_fds[i] = read_fd;
-            write_fds[i] = write_fd;
+            write_fds[i] = -1;
             printf("Process %d started with PID %d\n", i, pid);
         }
     }
@@ -95,36 +95,27 @@ int main(int argc, char *argv[]) {
     int process = 0;
 
     while (fgets(in_buf, sizeof(in_buf), file)) {
-        // snprintf(fifo_in, sizeof(fifo_in), "fifo_in_%d", process);
-        // snprintf(fifo_out, sizeof(fifo_out), "fifo_out_%d", process);
-        
-        // int fd_out = open(fifo_out, O_WRONLY);
-        // if (fd_out == -1) {
-        //     perror("open fifo_out for sending\n");
-        //     exit(EXIT_FAILURE);
-        // }
-        printf("Sending to process %d (%d): %s\n", pids[process], strlen(in_buf), in_buf);
-        write(write_fds[process], in_buf, strlen(in_buf));
-        // close(fd_out);
-
+        printf("Sending to process %d (%d): %s\n", process, (int)strlen(in_buf), in_buf);
+	if (write_fds[process] < 0) {
+		write_fds[process] = open_fd(read_fifos[process], O_WRONLY);
+	}
+        if (write(write_fds[process], in_buf, strlen(in_buf)) == -1) {
+            perror("write");
+            exit(EXIT_FAILURE);
+        }
         printf("Send signal SIGUSR1 to process %d\n", pids[process]);
-        // sleep(1);
-        kill(pids[process], SIGUSR1);
+        if (kill(pids[process], SIGUSR1) == -1) {
+            perror("kill");
+            exit(EXIT_FAILURE);
+        }
 
-        // int fd_in = open(fifo_in, O_RDONLY);
-        // if (fd_in == -1) {
-        //     perror("open fifo_in");
-        //     exit(EXIT_FAILURE);
-        // }
-        // sleep(1);
         int bytes_read = read(read_fds[process], in_buf, sizeof(in_buf) - 1);
         if (bytes_read == -1) {
-            perror("read");
+            perror("read1");
             exit(EXIT_FAILURE);
         }
         in_buf[bytes_read] = '\0';
         printf("Result from process %d (%d): %s\n", pids[process], bytes_read, in_buf);
-        // close(fd_in);
 
         process = (process + 1) % num_processes;
     }
@@ -143,12 +134,7 @@ int main(int argc, char *argv[]) {
         // }
         int bytes_read;
         // int bytes_read = read(fd_in, in_buf, sizeof(in_buf) - 1);
-        while (bytes_read = read(read_fds[i], in_buf, sizeof(in_buf) - 1)) {
-            sleep(1);
-            if (bytes_read == -1) {
-                perror("read");
-                exit(EXIT_FAILURE);
-            }
+        while ((bytes_read = read(read_fds[i], in_buf, sizeof(in_buf) - 1)) > 0) {
             // while (!bytes_read) {
             //     // sleep(1);
             //     printf("No info from process %d", pids[i]);
@@ -204,7 +190,7 @@ void remove_fifo(char *fifo_name) {
 
 int open_fd(char *fchannel, int mode) {
     int fd;
-    if (fd = open(fchannel, mode) == -1) {
+    if ((fd = open(fchannel, mode)) == -1) {
         perror("open fd");
         exit(EXIT_FAILURE);
     }
