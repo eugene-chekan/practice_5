@@ -15,8 +15,6 @@ int num_processes;
 pid_t *pids;
 int *read_fds;
 int *write_fds;
-// char *read_fifos[num_processes];
-// char *write_fifos[num_processes];
 
 char fifo_in[BUFFER_SIZE], fifo_out[BUFFER_SIZE];
 char out_buf[BUFFER_SIZE];
@@ -52,8 +50,6 @@ int main(int argc, char *argv[]) {
     write_fds = malloc(num_processes * sizeof(int));
     char **read_fifos = (char **)malloc(num_processes * sizeof(char *));
     char **write_fifos = (char **)malloc(num_processes * sizeof(char *));
-    // read_fifos = malloc(num_processes * sizeof(const char) * BUFFER_SIZE);
-    // write_fifos = malloc(num_processes * sizeof(const char) * BUFFER_SIZE);
 
     signal(SIGINT, stop_server);
 
@@ -63,9 +59,6 @@ int main(int argc, char *argv[]) {
 
         create_fifo(fifo_in);
         create_fifo(fifo_out);
-
-        //int read_fd = open_fd(fifo_in, O_RDONLY | O_NONBLOCK);
-        //int write_fd = open_fd(fifo_out, O_WRONLY);
 
         pid_t pid = fork();
         if (pid == -1) {
@@ -92,6 +85,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
+    int times = 0;
     int process = 0;
     while (fgets(in_buf, sizeof(in_buf), file)) {
         printf("Sending to process %d (%d): %s\n", process, (int)strlen(in_buf), in_buf);
@@ -102,34 +96,34 @@ int main(int argc, char *argv[]) {
             perror("write");
             exit(EXIT_FAILURE);
         }
-        printf("Send signal SIGUSR1 to process %d\n", pids[process]);
-        if (kill(pids[process], SIGUSR1) == -1) {
-            perror("kill");
-            exit(EXIT_FAILURE);
-        }
+	if ((times++)%10 == 0) {
+		printf("Send signal SIGUSR1 to process %d\n", pids[process]);
+		if (kill(pids[process], SIGUSR1) == -1) {
+			perror("kill");
+			exit(EXIT_FAILURE);
+		}
 
-	if (read_fds[process] < 0) {
-            read_fds[process] = open(read_fifos[process], O_RDONLY);
-            if (read_fds[process] == -1) {
-                perror("open fifo_in");
-                exit(EXIT_FAILURE);
-            }
-	}
-        int bytes_read = read(read_fds[process], in_buf, sizeof(in_buf) - 1);
-        if (bytes_read == -1) {
-            perror("read1");
-            exit(EXIT_FAILURE);
-        } else if (bytes_read > 0) {
-            in_buf[bytes_read] = '\0';
-            printf("Result from process %d (%d): %s\n", pids[process], bytes_read, in_buf);
+		if (read_fds[process] < 0) {
+			read_fds[process] = open(read_fifos[process], O_RDONLY);
+			if (read_fds[process] == -1) {
+				perror("open fifo_in");
+				exit(EXIT_FAILURE);
+			}
+		}
+		int bytes_read = read(read_fds[process], in_buf, sizeof(in_buf) - 1);
+		if (bytes_read == -1) {
+			perror("read1");
+			exit(EXIT_FAILURE);
+		} else if (bytes_read > 0) {
+			in_buf[bytes_read] = '\0';
+			printf("Result from process %d (%d): %s\n", pids[process], bytes_read, in_buf);
+		}
 	}
 
         process = (process + 1) % num_processes;
     }
 
     fclose(file);
-    sleep(1); // give some time for clients
-
     for (int i = 0; i < num_processes; i++) {
         printf("Sending closing signal to [%d] child process...\n", pids[i]);
         kill(pids[i], SIGUSR2);
@@ -144,20 +138,12 @@ int main(int argc, char *argv[]) {
 	}
         int bytes_read;
         while ((bytes_read = read(read_fds[i], in_buf, sizeof(in_buf) - 1)) > 0) {
-            // while (!bytes_read) {
-            //     // sleep(1);
-            //     printf("No info from process %d", pids[i]);
-            //     continue;
-            // }
             in_buf[bytes_read] = '\0';
 
             printf("Final result from process %d (%d): %s\n", pids[i], bytes_read, in_buf);
         }
-        // close(fd_in);
     }
 
-    // sleep(2);
-    // Wait for all child processes to finish
     printf("Waiting for child processes to finish...\n");
     for (int i = 0; i < num_processes; i++) {
         waitpid(pids[i], NULL, 0);

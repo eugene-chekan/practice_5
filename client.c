@@ -5,6 +5,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <signal.h>
+#include <stdbool.h>
 
 #define BUFFER_SIZE 256
 
@@ -13,6 +14,7 @@ char *fifo_recv;
 int fd_recv = -1;
 int fd_send = -1;
 int cur_sum = 0;
+bool user2_exit = false;
 
 void handle_sigusr1(int sig) {
     char result[BUFFER_SIZE];
@@ -32,22 +34,8 @@ void handle_sigusr1(int sig) {
 }    
 
 void handle_sigusr2(int sig) {
-    char result[BUFFER_SIZE];
-    // printf("[%d] Total sum: %d\n", getpid(), cur_sum);
-    // printf("Termination signal received. Client PID: %d. exiting...\n", getpid());
-    snprintf(result, sizeof(result), "%d: %d", getpid(), cur_sum);
-
-    if (fd_send < 0) {
-        fd_send = open(fifo_send, O_WRONLY);
-        if (fd_send == -1) {
-            perror("open fifo_send");
-            exit(EXIT_FAILURE);
-	}
-     }
-    write(fd_send, result, strlen(result));
-    close(fd_send);
-    close(fd_recv);
-    exit(EXIT_SUCCESS);
+    printf("Termination signal received. Client PID: %d. exiting...\n", getpid());
+    user2_exit = true;
 }
 
 int main(int argc, char *argv[]) {
@@ -58,44 +46,59 @@ int main(int argc, char *argv[]) {
 
     fifo_send = argv[1];
     fifo_recv = argv[2];
-    // printf("Client [%d] started with args: %s, %s\n", getpid(), fifo_send, fifo_recv);
+
     // Register signal handler
     signal(SIGUSR1, handle_sigusr1);
     signal(SIGUSR2, handle_sigusr2);
     
-    fd_recv = open(fifo_recv, O_RDONLY);
+    fd_recv = open(fifo_recv, O_RDONLY | O_NONBLOCK);
     if (fd_recv == -1) {
         perror("open fifo_recv");
         exit(EXIT_FAILURE);
     }
-    
-    while (1) {
-        // int fd_recv = open(fifo_recv, O_RDONLY);
-        // if (fd_recv == -1) {
-        //     perror("open fifo_recv");
-        //     exit(EXIT_FAILURE);
-        // }
+    struct timeval timeout;
+    timeout.tv_sec = 5;//TIMEOUT_SECONDS;
+    timeout.tv_usec = 0;
 
-        char buffer[BUFFER_SIZE];
-        int bytes_read = read(fd_recv, buffer, sizeof(buffer) - 1);
-        if (bytes_read <= 0) {
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(fd_recv, &read_fds);
+
+    char buffer[BUFFER_SIZE];
+    int bytes_read;
+    while (!user2_exit) {
+
+	if (select(fd_recv + 1, &read_fds, NULL, NULL, &timeout) <= 0) {
             continue;
-        }
+	}
+	while ((bytes_read = read(fd_recv, buffer, sizeof(buffer) - 1)) > 0) {
 
-        buffer[bytes_read] = '\0';
-        printf("[%d] received: %d bytes -> %s\n", getpid(), bytes_read, buffer);
-        // printf("Processing...\n");
-        
-        for (const char *p = buffer; *p; p++) {
-            if (isdigit(*p)) {
-                printf("Digit detected: %d\n", *p - '0');
-                cur_sum += *p - '0';
-            }
-        }
+		buffer[bytes_read] = '\0';
+		printf("[%d] received: %d bytes -> %s\n", getpid(), bytes_read, buffer);
+		// printf("Processing...\n");
+
+		for (const char *p = buffer; *p; p++) {
+			if (isdigit(*p)) {
+				printf("Digit detected: %d\n", *p - '0');
+				cur_sum += *p - '0';
+			}
+		}
+	}
         // close(fd_recv);
     }
 
+    printf("[%d] EXIT!!!!!!!!!!!\n", getpid());
+    char result[BUFFER_SIZE];
+    snprintf(result, sizeof(result), "%d: %d", getpid(), cur_sum);
+    if (fd_send < 0) {
+        fd_send = open(fifo_send, O_WRONLY);
+        if (fd_send == -1) {
+            perror("open fifo_send");
+            exit(EXIT_FAILURE);
+	}
+    }
+    write(fd_send, result, strlen(result));
     close(fd_recv);
     close(fd_send);
-    exit(0);
+    exit(EXIT_SUCCESS);
 }
