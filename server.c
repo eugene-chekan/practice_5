@@ -64,7 +64,7 @@ int main(int argc, char *argv[]) {
         create_fifo(fifo_in);
         create_fifo(fifo_out);
 
-        int read_fd = open_fd(fifo_in, O_RDONLY | O_NONBLOCK);
+        //int read_fd = open_fd(fifo_in, O_RDONLY | O_NONBLOCK);
         //int write_fd = open_fd(fifo_out, O_WRONLY);
 
         pid_t pid = fork();
@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
             pids[i] = pid;
             read_fifos[i] = strdup(fifo_in);
             write_fifos[i] = strdup(fifo_out);
-            read_fds[i] = read_fd;
+            read_fds[i] = -1;//read_fd;
             write_fds[i] = -1;
             printf("Process %d started with PID %d\n", i, pid);
         }
@@ -93,11 +93,10 @@ int main(int argc, char *argv[]) {
     }
 
     int process = 0;
-
     while (fgets(in_buf, sizeof(in_buf), file)) {
         printf("Sending to process %d (%d): %s\n", process, (int)strlen(in_buf), in_buf);
 	if (write_fds[process] < 0) {
-		write_fds[process] = open_fd(read_fifos[process], O_WRONLY);
+		write_fds[process] = open_fd(write_fifos[process], O_WRONLY);
 	}
         if (write(write_fds[process], in_buf, strlen(in_buf)) == -1) {
             perror("write");
@@ -109,31 +108,41 @@ int main(int argc, char *argv[]) {
             exit(EXIT_FAILURE);
         }
 
+	if (read_fds[process] < 0) {
+            read_fds[process] = open(read_fifos[process], O_RDONLY);
+            if (read_fds[process] == -1) {
+                perror("open fifo_in");
+                exit(EXIT_FAILURE);
+            }
+	}
         int bytes_read = read(read_fds[process], in_buf, sizeof(in_buf) - 1);
         if (bytes_read == -1) {
             perror("read1");
             exit(EXIT_FAILURE);
-        }
-        in_buf[bytes_read] = '\0';
-        printf("Result from process %d (%d): %s\n", pids[process], bytes_read, in_buf);
+        } else if (bytes_read > 0) {
+            in_buf[bytes_read] = '\0';
+            printf("Result from process %d (%d): %s\n", pids[process], bytes_read, in_buf);
+	}
 
         process = (process + 1) % num_processes;
     }
 
     fclose(file);
+    sleep(1); // give some time for clients
 
     for (int i = 0; i < num_processes; i++) {
         printf("Sending closing signal to [%d] child process...\n", pids[i]);
         kill(pids[i], SIGUSR2);
 
         // snprintf(fifo_in, sizeof(fifo_in), "fifo_in_%d", i);
-        // int fd_in = open(fifo_in, O_RDONLY);
-        // if (fd_in == -1) {
-        //     perror("open fifo_in");
-        //     exit(EXIT_FAILURE);
-        // }
+	if (read_fds[i] < 0) {
+            read_fds[i] = open(read_fifos[i], O_RDONLY);
+            if (read_fds[i] == -1) {
+                perror("open fifo_in");
+                exit(EXIT_FAILURE);
+            }
+	}
         int bytes_read;
-        // int bytes_read = read(fd_in, in_buf, sizeof(in_buf) - 1);
         while ((bytes_read = read(read_fds[i], in_buf, sizeof(in_buf) - 1)) > 0) {
             // while (!bytes_read) {
             //     // sleep(1);

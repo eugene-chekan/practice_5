@@ -10,22 +10,24 @@
 
 char *fifo_send;
 char *fifo_recv;
-int fd_recv;
-int fd_send;
+int fd_recv = -1;
+int fd_send = -1;
 int cur_sum = 0;
 
 void handle_sigusr1(int sig) {
     char result[BUFFER_SIZE];
-    // printf("Sum of digits: %d\n", cur_sum);
+    printf("Sum of digits: %d\n", cur_sum);
     snprintf(result, sizeof(result), "%d: %d", getpid(), cur_sum);
 
-    // printf("Opening channel %s for sending to client\n", fifo_send);
-    // int fd_send = open(fifo_send, O_WRONLY);
-    // if (fd_send == -1) {
-    //     perror("open fifo_send");
-    //     exit(EXIT_FAILURE);
-    // }
-    // printf("[%d] sending back (%d): %s\n",getpid(), strlen(result), result);
+    if (fd_send < 0) {
+	printf("open fifo_send\n");
+        fd_send = open(fifo_send, O_WRONLY);
+        if (fd_send == -1) {
+            perror("open fifo_send");
+            exit(EXIT_FAILURE);
+	}
+     }
+    printf("[%d] sending back (%ld): %s\n",getpid(), strlen(result), result);
     write(fd_send, result, strlen(result));
 }    
 
@@ -35,12 +37,13 @@ void handle_sigusr2(int sig) {
     // printf("Termination signal received. Client PID: %d. exiting...\n", getpid());
     snprintf(result, sizeof(result), "%d: %d", getpid(), cur_sum);
 
-    // fd_send = open(fifo_send, O_WRONLY | O_NONBLOCK);
-    // if (fd_send == -1) {
-    //     perror("open fifo_send");
-    //     exit(EXIT_FAILURE);
-    // }
-    // printf("[%d] sending back total (%d): %s\n",getpid(), strlen(result), result);
+    if (fd_send < 0) {
+        fd_send = open(fifo_send, O_WRONLY);
+        if (fd_send == -1) {
+            perror("open fifo_send");
+            exit(EXIT_FAILURE);
+	}
+     }
     write(fd_send, result, strlen(result));
     close(fd_send);
     close(fd_recv);
@@ -56,22 +59,15 @@ int main(int argc, char *argv[]) {
     fifo_send = argv[1];
     fifo_recv = argv[2];
     // printf("Client [%d] started with args: %s, %s\n", getpid(), fifo_send, fifo_recv);
-
+    // Register signal handler
+    signal(SIGUSR1, handle_sigusr1);
+    signal(SIGUSR2, handle_sigusr2);
+    
     fd_recv = open(fifo_recv, O_RDONLY);
     if (fd_recv == -1) {
         perror("open fifo_recv");
         exit(EXIT_FAILURE);
     }
-    
-    fd_send = open(fifo_send, O_WRONLY);
-    if (fd_send == -1) {
-        perror("open fifo_send");
-        close(fd_recv);
-        exit(EXIT_FAILURE);
-    }
-    // Register signal handler
-    signal(SIGUSR1, handle_sigusr1);
-    signal(SIGUSR2, handle_sigusr2);
     
     while (1) {
         // int fd_recv = open(fifo_recv, O_RDONLY);
@@ -82,7 +78,7 @@ int main(int argc, char *argv[]) {
 
         char buffer[BUFFER_SIZE];
         int bytes_read = read(fd_recv, buffer, sizeof(buffer) - 1);
-        if (!bytes_read) {
+        if (bytes_read <= 0) {
             continue;
         }
 
