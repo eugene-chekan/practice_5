@@ -57,7 +57,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     struct timeval timeout;
-    timeout.tv_sec = 5;//TIMEOUT_SECONDS;
+    timeout.tv_sec = 1;
     timeout.tv_usec = 0;
 
     fd_set read_fds;
@@ -67,9 +67,12 @@ int main(int argc, char *argv[]) {
     char buffer[BUFFER_SIZE];
     int bytes_read;
     while (!user2_exit) {
-
-	if (select(fd_recv + 1, &read_fds, NULL, NULL, &timeout) <= 0) {
-            continue;
+	timeout.tv_sec = 1;
+    	if (select(fd_recv + 1, &read_fds, NULL, NULL, &timeout) <= 0) {
+	    continue;
+    	}
+	if (!FD_ISSET(fd_recv, &read_fds)) {
+	    continue;
 	}
 	while ((bytes_read = read(fd_recv, buffer, sizeof(buffer) - 1)) > 0) {
 
@@ -84,7 +87,6 @@ int main(int argc, char *argv[]) {
 			}
 		}
 	}
-        // close(fd_recv);
     }
 
     printf("[%d] EXIT!!!!!!!!!!!\n", getpid());
